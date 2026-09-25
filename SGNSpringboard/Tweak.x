@@ -62,31 +62,49 @@ static BOOL SGNModernRegistrationShouldPresentChoice(NSString *bundleIdentifier)
     return YES;
 }
 
-%group HookRegistration_Classic
-%hook SBRemoteNotificationServer
-- (int)registerApplication:(id)application forEnvironment:(id)environment withTypes:(int)notificationTypes {
-    if (SGNRegistrationConsumePassThrough()) return %orig;
+/** Returns YES when SpringBoard's own registration should run. */
+static BOOL SGNClassicRegistrationShouldRunOriginal(id server, id application,
+                                                    id environment,
+                                                    int notificationTypes) {
+    if (SGNRegistrationConsumePassThrough()) return YES;
 
     NSString *bundleId = [application bundleIdentifier];
 
     if (SGN_IsCascadeReEntry(bundleId)) {
         NSLog(@"[SGN] Suppressing deregister cascade for %@", bundleId);
-        return 0;
+        return NO;
     }
 
     if (SGNEffectiveAppIntent(bundleId)) {
         SGN_InstallTokenGuard();
         SGN_AsyncFetchAndDeliverToken(bundleId, application, environment,
                                       notificationTypes, nil);
-        return 1;
+        return NO;
     }
 
-    if (SGN_BundleRegisteredWithNativePush(bundleId)) {
+    if (SGN_BundleRegisteredWithNativePush(bundleId)) return YES;
+
+    SGNRegistrationPresentClassicChoice(server, application, environment, bundleId, notificationTypes);
+    return NO;
+}
+
+%group HookRegistration_Classic
+%hook SBRemoteNotificationServer
+- (int)registerApplication:(id)application forEnvironment:(id)environment withTypes:(int)notificationTypes {
+    if (SGNClassicRegistrationShouldRunOriginal(self, application, environment, notificationTypes)) {
         return %orig;
     }
+    return SGNEffectiveAppIntent([application bundleIdentifier]) ? 1 : 0;
+}
+%end
+%end
 
-    SGNRegistrationPresentClassicChoice(self, application, environment, bundleId, notificationTypes);
-    return 0;
+%group HookRegistration_iOS8
+%hook SBRemoteNotificationServer
+- (void)registerApplication:(id)application forEnvironment:(id)environment appWantsPush:(BOOL)wantsPush {
+    if (!wantsPush || SGNClassicRegistrationShouldRunOriginal(self, application, environment, 0)) {
+        %orig;
+    }
 }
 %end
 %end
@@ -139,6 +157,9 @@ static BOOL SGNModernRegistrationShouldPresentChoice(NSString *bundleIdentifier)
         %init(HookRegistration_iOS10);
     } else if (NSClassFromString(@"UNNotificationRegistrarConnectionListener")) {
         %init(HookRegistration_iOS9);
+    } else if ([NSClassFromString(@"SBRemoteNotificationServer") instancesRespondToSelector:
+                   @selector(registerApplication:forEnvironment:appWantsPush:)]) {
+        %init(HookRegistration_iOS8);
     } else {
         %init(HookRegistration_Classic);
     }

@@ -15,6 +15,7 @@ echo "[SGN] Using prefix: ${JB_PREFIX:-/}"
 
 if [ -f "$PLIST_PATH" ] && command -v launchctl >/dev/null 2>&1; then
     echo "[SGN] Unloading daemon with launchctl"
+    launchctl bootout system/com.skyglow.snd 2>/dev/null || true
     launchctl unload "$PLIST_PATH" 2>/dev/null || true
 fi
 

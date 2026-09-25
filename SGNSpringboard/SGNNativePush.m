@@ -73,6 +73,71 @@ void SGN_DeregisterAppNativelyWithCompletion(
 
 #pragma mark - Token Registration
 
+void SGN_PersistRemoteNotificationClient(NSString *bundleId, id client) {
+    static NSString *const key = @"SBRemoteNotificationClient";
+    Class legacyStore = objc_getClass("SBApplicationPersistence");
+    if (legacyStore) {
+        [[legacyStore sharedInstance] setArchivedObject:client
+                                                 forKey:key
+                              bundleOrDisplayIdentifier:bundleId];
+        return;
+    }
+    Class storeCls = objc_getClass("BKSApplicationDataStore");
+    if (![storeCls instancesRespondToSelector:@selector(initWithBundleIdentifier:)]) return;
+    BKSApplicationDataStore *store = [[storeCls alloc] initWithBundleIdentifier:bundleId];
+    if (client) {
+        [store setArchivedObject:client forKey:key];
+    } else {
+        [store removeObjectForKey:key];
+    }
+    [store release];
+}
+
+void SGNClassicRegisterApplication(id server, id application,
+                                   id environment, int notificationTypes) {
+    if ([server respondsToSelector:@selector(registerApplication:forEnvironment:appWantsPush:)]) {
+        [(SBRemoteNotificationServer *)server registerApplication:application
+                                                   forEnvironment:environment
+                                                     appWantsPush:YES];
+    } else {
+        [(SBRemoteNotificationServer *)server registerApplication:application
+                                                   forEnvironment:environment
+                                                        withTypes:notificationTypes];
+    }
+}
+
+/** iOS 5-7 */
+static BOOL SGN_UpdateTypedClient(SBRemoteNotificationClient *client,
+                                  id application, int notificationTypes) {
+    BOOL changed = NO;
+    int requestedTypes = notificationTypes & 0xF;
+    if ([client appEnabledTypes] != requestedTypes) {
+        [client setAppEnabledTypes:requestedTypes];
+        changed = YES;
+    }
+
+    int settingsPresentedTypes = [client settingsPresentedTypes];
+    if (notificationTypes & ~settingsPresentedTypes & 0xF) {
+        int alertTypes = (notificationTypes & 0x8) ? 0xF : 0x7;
+
+        Class alertCls = objc_getClass("SBRemoteNotificationPermissionAlert");
+        SBRemoteNotificationPermissionAlert *alert = nil;
+        if ([alertCls instancesRespondToSelector:@selector(initWithApplication:notificationTypes:)]) {
+            alert = [[alertCls alloc] initWithApplication:application notificationTypes:alertTypes];
+        } else if ([alertCls instancesRespondToSelector:@selector(initWithApplication:)]) {
+            alert = [[alertCls alloc] performSelector:@selector(initWithApplication:) withObject:application];
+        }
+        if (alert) {
+            SBAlertItemsController *ctrl = [objc_getClass("SBAlertItemsController") sharedInstance];
+            [ctrl deactivateAlertItemsOfClass:alertCls];
+            [ctrl activateAlertItem:alert];
+            [client setSettingsPresentedTypes:settingsPresentedTypes | requestedTypes];
+            [alert release];
+        }
+    }
+    return changed;
+}
+
 void SGN_DeliverSuccess(NSString *bundleId, id application, id environment,
                         int notificationTypes, NSData *token) {
     if (!bundleId.length || !token) return;
@@ -92,38 +157,20 @@ void SGN_DeliverSuccess(NSString *bundleId, id application, id environment,
             [client setEnvironment:environment];
             needsPersist = YES;
         }
-        int requestedTypes = notificationTypes & 0xF;
-        if ([client appEnabledTypes] != requestedTypes) {
-            [client setAppEnabledTypes:requestedTypes];
+
+        /* iOS 8, alert permission is requested by the app separately. */
+        if ([client respondsToSelector:@selector(setWantsPush:)]) {
+            if (![client doesWantPush]) {
+                [client setWantsPush:YES];
+                needsPersist = YES;
+            }
+        } else if (SGN_UpdateTypedClient(client, application, notificationTypes)) {
             needsPersist = YES;
         }
 
-        int settingsPresentedTypes = [client settingsPresentedTypes];
-        if (notificationTypes & ~settingsPresentedTypes & 0xF) {
-            int alertTypes = (notificationTypes & 0x8) ? 0xF : 0x7;
-
-            Class alertCls = objc_getClass("SBRemoteNotificationPermissionAlert");
-            SBRemoteNotificationPermissionAlert *alert = nil;
-            if ([alertCls instancesRespondToSelector:@selector(initWithApplication:notificationTypes:)]) {
-                alert = [[alertCls alloc] initWithApplication:application notificationTypes:alertTypes];
-            } else if ([alertCls instancesRespondToSelector:@selector(initWithApplication:)]) {
-                alert = [[alertCls alloc] performSelector:@selector(initWithApplication:) withObject:application];
-            }
-            if (alert) {
-                SBAlertItemsController *ctrl = [objc_getClass("SBAlertItemsController") sharedInstance];
-                [ctrl deactivateAlertItemsOfClass:alertCls];
-                [ctrl activateAlertItem:alert];
-                [client setSettingsPresentedTypes:settingsPresentedTypes | requestedTypes];
-                [alert release];
-            }
-        }
-
         if (needsPersist) {
-            [[objc_getClass("SBApplicationPersistence") sharedInstance]
-                setArchivedObject:client
-                           forKey:@"SBRemoteNotificationClient"
-        bundleOrDisplayIdentifier:bundleId];
-            [server performSelector:@selector(calculateTopics)];
+            SGN_PersistRemoteNotificationClient(bundleId, client);
+            [server calculateTopics];
         }
 
         [client setLastKnownDeviceToken:token];
@@ -191,7 +238,8 @@ static BOOL sPassThrough      = NO;
                          sPendingResultBlock);
         } else {
             sPassThrough = YES;
-            [(SBRemoteNotificationServer *)sPendingServer registerApplication:sPendingApp forEnvironment:sPendingEnv withTypes:sPendingTypes];
+            SGNClassicRegisterApplication(sPendingServer, sPendingApp,
+                                          sPendingEnv, sPendingTypes);
         }
     }
 

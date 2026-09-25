@@ -59,9 +59,7 @@ static NSArray *SGNClassicSafeIdentifiers(SBRemoteNotificationServer *server) {
     }
     @try {
         SGNRegistrationBeginPassThrough();
-        [server registerApplication:application
-                     forEnvironment:@"production"
-                          withTypes:7];
+        SGNClassicRegisterApplication(server, application, @"production", 7);
         SGNRegistrationEndPassThrough();
         if (completion) completion(SGCERR_OK, nil);
     } @catch (NSException *exception) {
@@ -103,14 +101,7 @@ static NSArray *SGNClassicSafeIdentifiers(SBRemoteNotificationServer *server) {
         if ([clients isKindOfClass:[NSMutableDictionary class]]) {
             [clients removeObjectForKey:bundleIdentifier];
         }
-        SBApplicationPersistence *persistence =
-            [NSClassFromString(@"SBApplicationPersistence") sharedInstance];
-        if ([persistence respondsToSelector:
-            @selector(setArchivedObject:forKey:bundleOrDisplayIdentifier:)]) {
-            [persistence setArchivedObject:nil
-                                    forKey:@"SBRemoteNotificationClient"
-                 bundleOrDisplayIdentifier:bundleIdentifier];
-        }
+        SGN_PersistRemoteNotificationClient(bundleIdentifier, nil);
         if (completion) completion(SGCERR_OK, nil);
     } @catch (NSException *exception) {
         if (completion) completion(SGCERR_INTERNAL,

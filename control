@@ -1,6 +1,6 @@
 Package: com.skyglow.snd
 Name: Skyglow Notifications
-Version: 3.0
+Version: 3.0.2
 Architecture: iphoneos-arm
 Description: Low power daemon that runs in the background and fetches notifications from a server for all of your apps.
 Maintainer: Requis, Preloading
@@ -8,4 +8,4 @@ Author: Requis, Preloading
 Section: System
 Icon: file:///Library/PreferenceBundles/SGNPreferenceBundle.bundle/icon-settings.png
 Depiction: https://cydia.skyglow.es/depictions/com.skyglow.snd/depictions/index.html
-Depends: firmware (>= 4.0), mobilesubstrate | substitute | ellekit, preferenceloader
+Depends: firmware (>= 4.0), firmware (<< 10.0), mobilesubstrate | substitute | ellekit, preferenceloader

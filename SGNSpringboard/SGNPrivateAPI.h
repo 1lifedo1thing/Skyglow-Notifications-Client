@@ -35,7 +35,9 @@
 @interface SBRemoteNotificationServer : NSObject
 + (instancetype)sharedInstance;
 - (int)registerApplication:(id)application forEnvironment:(NSString *)environment withTypes:(int)types;
+- (void)registerApplication:(id)application forEnvironment:(NSString *)environment appWantsPush:(BOOL)wantsPush;
 - (void)unregisterApplication:(id)application;
+- (void)calculateTopics;
 - (NSArray *)_allPushRegisteredThirdPartyBundleIDs;
 - (void)connection:(id)connection didReceiveIncomingMessage:(id)message;
 - (void)connection:(id)connection
@@ -142,12 +144,21 @@
 - (void)setAppEnabledTypes:(int)types;
 - (int)settingsPresentedTypes;
 - (void)setSettingsPresentedTypes:(int)types;
+- (BOOL)doesWantPush;
+- (void)setWantsPush:(BOOL)wantsPush;
 - (void)setLastKnownDeviceToken:(NSData *)token;
 @end
 
 @interface SBApplicationPersistence : NSObject
 + (instancetype)sharedInstance;
 - (void)setArchivedObject:(id)object forKey:(NSString *)key bundleOrDisplayIdentifier:(NSString *)identifier;
+@end
+
+/** iOS 8 per app store that replaced SBApplicationPersistence. */
+@interface BKSApplicationDataStore : NSObject
+- (instancetype)initWithBundleIdentifier:(NSString *)bundleIdentifier;
+- (void)setArchivedObject:(id)object forKey:(NSString *)key;
+- (void)removeObjectForKey:(NSString *)key;
 @end
 
 @interface SBRemoteNotificationPermissionAlert : NSObject
